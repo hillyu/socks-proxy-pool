@@ -1,0 +1,124 @@
+#aDeveloped by TheBeast808
+import socket
+import queue
+import threading
+import time
+from struct import *
+import requests
+class ThreadChecker(threading.Thread):
+    def __init__(self, queue, timeout, outputFile):
+        self.timeout = timeout
+        self.outputFile = outputFile
+        self.q = queue
+        threading.Thread.__init__(self)
+    def isSocks4(self, host, port, soc):
+            ipaddr = socket.inet_aton(host)
+            packet4 = b"\x04\x01" + pack(">H",port) + ipaddr + b"\x00"
+            soc.sendall(packet4)
+            data = soc.recv(8)
+            if (len(data)<2):
+                # Null response
+                return False
+            if (data[0] != 0):
+                # Bad data
+                return False
+            # if (data[1] != b"\x5A"):
+            if (data[1] != 90):
+                # Server returned an error
+                return False
+            return True
+    def isSocks5(self, host, port, soc):
+            soc.sendall(b"\x05\x01\x00")
+            data = soc.recv(2)
+            if(len(data)<2):
+                # Null response
+                return False
+            if data[0] != 5:
+                # Not socks5
+                return False
+            if data[1] != 0:
+                # Requires authentication
+                return False
+            return True
+    def getSocksVersion(self, proxy):
+        host = proxy.split(":")[0]
+        try:
+            port = int(proxy.split(":")[1])
+            if port < 0 or port > 65536 or port is None:
+                print ("Invalid: " + proxy)
+                return 0
+        except:
+            print ("Invalid: " + proxy)
+            return 0
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(self.timeout)
+        try:
+            s.connect((host, port))
+            if(self.isSocks4(host, port, s)):
+                s.close()
+                return 5
+            elif(self.isSocks5(host, port, s)):
+                s.close()
+                return 4
+            else:
+                ("Not a SOCKS: " + proxy)
+                s.close()
+                return 0
+        except socket.timeout:
+            print ("Timeout: " + proxy)
+            s.close()
+            return 0
+        except socket.error:
+            print ("Connection refused: " + proxy)
+            s.close()
+            return 0
+    def run(self):
+            while True:
+                proxy = self.q.get()
+                version = self.getSocksVersion(proxy)
+                if version == 5 or version == 4:
+                    socksURI='socks'+str(version)+'://'+proxy
+                    proxies={'http': socksURI,
+                             'https': socksURI, }
+                    headers = {
+                        'User-Agent' : 'Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/27.0.1453.93 Safari/537.36',
+                        # 'Referer': 'http://www.itslaw.com/search/profiles?searchMode=profiles&sortType=1&conditions=searchWord%2B%E5%88%98%E7%BE%9A%E8%8E%89%2B1%2B%E5%88%98%E7%BE%9A%E8%8E%89'
+                    }
+                    matchString=u'400-010-5353'
+                    url='http://www.itslaw.com/bj'
+                    try:
+                        r=requests.get(url,headers=headers,proxies=proxies,timeout=timeout)
+                        if r.text.find(matchString):
+                            print ("Working: " + proxy)
+                            locks.acquire()
+                            self.outputFile.write(socksURI +"\n")
+                            locks.release()
+                            # socksProxies.put(socksURI)
+                    except Exception as e:
+                        pass
+                self.q.task_done()
+locks=threading.Lock()
+# class ThreadWriter(threading.Thread):
+checkQueue = queue.Queue()
+# inputFile = open(input("Proxy list: "), 'r')
+inputFile = open('socks.txt','r')
+# outputPath = input("Output file: ")
+outputPath = 'tmp.txt'
+outputFile = open(outputPath, 'a+',1)
+# threads = int(input("Number of threads: "))
+threads = 500
+# timeout = int(input("Timeout(seconds): "))
+timeout = 8
+for line in inputFile.readlines():
+    checkQueue.put(line.strip('\n'))
+inputFile.close()
+for i in range(threads):
+    t = ThreadChecker(checkQueue, timeout, outputFile)
+    t.setDaemon(True)
+    t.start()
+    time.sleep(.25)
+# wT = ThreadWriter(socksProxies, outputFile)
+# wT.setDaemon(True)
+# wT.start()
+checkQueue.join()
+outputFile.close()

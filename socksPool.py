@@ -1,0 +1,104 @@
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
+import logging
+import requests
+from itertools import cycle
+import sched, time
+import _thread
+
+BINDING_ADDR=''
+PORT=8080
+TIMOUT=30
+server_address=(BINDING_ADDR,PORT)
+socksPool=None
+
+logging.basicConfig(level='DEBUG')
+
+s=sched.scheduler(time.time, time.sleep)
+
+def timer(scheduler,interval,func,argument=()):
+    func(*argument)
+    s.enter(interval, 1, timer, argument=(scheduler,interval,func,argument))
+    s.run()
+
+
+class mHandler(BaseHTTPRequestHandler):
+
+    """this class handles incoming http request in the form of BaseHTTPRequestHandler"""
+    def do_GET(self):
+        mheaders=dict(self.headers.items())
+        # mheaders['User-Agent']='Mozilla/5.0 (Windows NT 6.3; Trident/7.0; rv:11.0) like Gecko'
+        logging.debug(mheaders)
+        logging.debug(self.path)
+        socksURI=next(socksPool)
+        print(socksURI)
+        proxies = {
+            'http' : socksURI,
+            'https' : socksURI
+        }
+        try:
+            # r=requests.get(self.path ,headers=mheaders,timeout=TIMOUT,proxies=proxies)
+            r=requests.get(self.path ,headers=mheaders,timeout=TIMOUT)
+            self.send_response(r.status_code)
+            # # Send headers
+            map(lambda k,v: self.send_header(k,v), r.headers.items())
+            self.end_headers()
+            self.wfile.write(r.content)
+        except Exception as e:
+            logging.error (e)
+
+        # logging.debug("this is the header"+self.headers.as_string())
+        # # Send message back to client
+        # message = "Hello world!"
+        # # Write content as utf-8 data
+        return
+    # def do_CONNECT(self):
+        # logging.debug("this is a https")
+        # mheaders=dict(self.headers.items())
+        # # mheaders['User-Agent']='Mozilla/5.0 (Windows NT 6.3; Trident/7.0; rv:11.0) like Gecko'
+        # logging.debug(mheaders)
+        # logging.debug(self.path)
+        # socksURI=next(socksPool)
+        # print(socksURI)
+        # proxies = {
+            # 'http' : socksURI,
+            # 'https' : socksURI
+        # }
+        # # self.send_response(200, 'Connection Established')
+        # # self.end_headers()
+        # bytestr= ("%s %d %s\r\n" % (self.protocol_version, 200, 'Connection Established')).encode('ascii')
+        # self.wfile.write(bytestr)
+        # try:
+            # r=requests.get("https://"+self.path.split(':', 1)[0] ,timeout=TIMOUT)
+            # # r=requests.get("https://"+self.path ,headers=mheaders,timeout=TIMOUT,proxies=proxies)
+            # # # Send headers
+            # map(lambda k,v: self.send_header(k,v), r.headers.items())
+            # self.wfile.write(r.content)
+        # except Exception as e:
+            # logging.error (e)
+
+        # # logging.debug("this is the header"+self.headers.as_string())
+        # # # Send message back to client
+        # # message = "Hello world!"
+        # # # Write content as utf-8 data
+        # return
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+        """Handle requests in a separate thread."""
+
+def readSocks():
+    global socksPool
+    inputFile=open("validSocks.txt",'r')
+    socksSet=set()
+    for line in inputFile.readlines():
+        socksSet.add(line.strip('\n'))
+    socksPool = cycle(list(socksSet))
+    print("Socks reloaded sucessfully")
+
+# pooling new socks list every hr
+httpd=ThreadedHTTPServer(server_address , mHandler)
+_thread.start_new_thread ( timer,  (s,60,readSocks))
+
+# httpd=HTTPServer(server_address,mHandler)
+print ("socksPool listening on :{}".format(server_address))
+httpd.serve_forever()
